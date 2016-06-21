@@ -5,6 +5,7 @@
 
 #define DISPLAY_NONE        0xFFFF
 #define DISPALY_CH_NULL     DISPLAY_NONE-1
+#define DISPALY_CH_ERROR    DISPALY_CH_NULL-1
 
 extern data UINT8 u8_ledDisBuff[6];
 extern data UINT8 u8_ledDot;

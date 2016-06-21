@@ -12,6 +12,7 @@
 #include "mifare.h"
 #include "drive_buzzer.h"
 #include "string.h"
+#include "app_test.h"
 
 code UINT8 PWD_Card[] = { 0xAC, 0x1E, 0x57, 0xAF, 0x19, 0x4E };	//密码卡密码
 data UINT8 LastCardId[5] = {0x00,0x00,0x00,0x00,0x00};
@@ -44,6 +45,10 @@ void app_brushInit(void)
 BOOL app_BrushGetChannelState(UINT8 channel)					//获取通道是否占用
 {
 	UINT8 i;
+    if(b_fuseState[channel] == FALSE)							//保险丝故障认为已经占用
+    {
+        return TRUE;
+    }
 	for (i = 0; i < 5; i++)
 	{
 		if (s_Money.Card_ID[channel][i] != 0)
@@ -103,6 +108,11 @@ BOOL app_brushNotifyBrush(UINT16 money)							//有刷卡，选择通道
 	channel = drive_keyGetKey();
 	if (channel < CHANNEL_NUMBER)
 	{
+        if(app_testGetFuseState(channel) == FALSE)
+        {
+            drv_buzzerNumber(2);
+            return FALSE;
+        }
 		if (app_BrushGetChannelState(channel) == FALSE)
 		{
 			app_brushBrush(channel, money);
@@ -113,9 +123,10 @@ BOOL app_brushNotifyBrush(UINT16 money)							//有刷卡，选择通道
 	return FALSE;
 }
 
-BOOL app_brushGetChannelIdState(UINT8 channel)					//获取该通道是否被占用
+BOOL app_brushGetChannelIdState(UINT8 channel)					//获取该通道是否被已存在最新刷的卡占用
 {
-	if (memcmp(s_Money.Card_ID[channel], gCard_UID, 5) == 0)
+	if (memcmp(s_Money.Card_ID[channel], gCard_UID, 5) == 0
+        && b_fuseState[channel] == TRUE)
 	{
 		return TRUE;
 	}
@@ -259,7 +270,6 @@ void app_brushMemSetting(void)
 void app_brushCycle500ms(void)
 {
 	UINT8 channel;
-	UINT16 Money;
 	static UINT16 u16_BrushMoney = 0;                //当前刷卡金额
 #define BRUSH_SEL_CHANNEL_TIME             120
 	static UINT8 u8_BrushSelChannelTime = BRUSH_SEL_CHANNEL_TIME;
@@ -286,8 +296,9 @@ void app_brushCycle500ms(void)
         if (hwa_mifareReadBlock(gBuff, 4))			//读取管理卡和用户卡密码以及扇区
         {
             memcpy(&s_System, gBuff, 16);
-            s_System.Refund++;
-            s_System.Refund &= 0x01;
+            s_System.Refund = 0;
+//            s_System.Refund++;
+//            s_System.Refund &= 0x01;
             if (hwa_mifareReadBlock(gBuff, 5))			//读取管理卡和用户卡密码以及扇区
             {
                 if(gBuff[0] == 0x01)
@@ -325,73 +336,51 @@ void app_brushCycle500ms(void)
         {
             channel = ReturnCardId();
             
-           if (channel == NO_CHANNEL
-                || s_System.Refund == FALSE)     //新卡或者不返款型加钱
+            if (u16_BrushMoney
+                && memcmp(LastCardId, gCard_UID, 5))		//与上次扣款卡号不一致，不允许刷卡
             {
-                if (u16_BrushMoney
-                    && memcmp(LastCardId, gCard_UID, 5))		//与上次扣款卡号不一致，不允许刷卡
-                {
-                    break;
-                }
-                if (channel == NO_CHANNEL && app_BrushGetSurplusChannelNum() == 0)     //通道全部占用，不允许刷卡扣款
-                {
-                    drv_buzzerNumber(2);
-                    break;
-                }
-                if (pMoney->money >= s_System.Money)						//确保余额充足
-                {
-                    pMoney->money -= s_System.Money;
-                    if (hwa_mifareWriteSector(gBuff, s_System.Sector))
-                    {
-                        memcpy(LastCardId, gCard_UID, 5);
-                        s_Money.MoneySum += s_System.Money;					//累计营业额
-
-                        if (channel == NO_CHANNEL)						    //新卡，自动选择未使用的通道
-                        {
-                            u16_BrushMoney += s_System.Money;              //累计刷卡金额
-                            drv_buzzerNumber(1);
-                            drv_ledRequestDisplayChannel0(pMoney->money / 100, 0xFFFF, BIT2);		//显示余额
-                            drv_ledRequestDisplayChannel1(pMoney->money % 100 * 10, 0xFFFF, 0);
-                            sys_delayms(2000);
-
-                            drv_ledRequestDisplayChannel0(u16_BrushMoney / 100, 0xFFFF, BIT2);//显示刷卡金额
-                            drv_ledRequestDisplayChannel1(u16_BrushMoney % 100 * 10, 0xFFFF, 0);
-                        }
-                        else												//直接加钱
-                        {
-                            app_timeAddTime(channel, s_System.Money);
-							app_configWrite(MONEY_SECTOR);				//保存营业额
-                            u16_BrushMoney = 0;
-                            drv_buzzerNumber(1);
-                            sys_delayms(2000);
-                        }
-                        u8_BrushSelChannelTime = BRUSH_SEL_CHANNEL_TIME;
-                        break;
-                    }
-                    break;
-                }
-                else
-                {
-                    drv_buzzerNumber(3);
-                    break;
-                }
+                break;
             }
-            else															//返款
+            if (channel == NO_CHANNEL && app_BrushGetSurplusChannelNum() == 0)     //通道全部占用，不允许刷卡扣款
             {
-                Money = app_timeRefundMoney(channel, &pMoney->money);
+                drv_buzzerNumber(2);
+                break;
+            }
+            if (pMoney->money >= s_System.Money)						//确保余额充足
+            {
+                pMoney->money -= s_System.Money;
                 if (hwa_mifareWriteSector(gBuff, s_System.Sector))
                 {
-                    app_timeClear(channel);
-                    if (s_Money.MoneySum > Money)
+                    memcpy(LastCardId, gCard_UID, 5);
+                    s_Money.MoneySum += s_System.Money;					//累计营业额
+
+                    if (channel == NO_CHANNEL)						    //新卡，自动选择未使用的通道
                     {
-                        s_Money.MoneySum -= Money;           //累计营业额
+                        u16_BrushMoney += s_System.Money;              //累计刷卡金额
+                        drv_buzzerNumber(1);
+                        drv_ledRequestDisplayChannel0(pMoney->money / 100, 0xFFFF, BIT2);		//显示余额
+                        drv_ledRequestDisplayChannel1(pMoney->money % 100 * 10, 0xFFFF, 0);
+                        sys_delayms(2000);
+
+                        drv_ledRequestDisplayChannel0(u16_BrushMoney / 100, 0xFFFF, BIT2);//显示刷卡金额
+                        drv_ledRequestDisplayChannel1(u16_BrushMoney % 100 * 10, 0xFFFF, 0);
                     }
-					app_configWrite(MONEY_SECTOR);				//保存营业额
-                    drv_buzzerNumber(1);
-                    drv_ledRequestDisplayChannel0(pMoney->money / 100, 3000, BIT2);		//显示余额
-                    drv_ledRequestDisplayChannel1(pMoney->money % 100 * 10, 3000, 0);
-                    sys_delayms(2000);
+                    else												//直接加钱
+                    {
+                        app_timeAddTime(channel, s_System.Money);
+						app_configWrite(MONEY_SECTOR);				//保存营业额
+                        u16_BrushMoney = 0;
+                        drv_buzzerNumber(1);
+                        sys_delayms(2000);
+                    }
+                    u8_BrushSelChannelTime = BRUSH_SEL_CHANNEL_TIME;
+                    break;
                 }
+                break;
+            }
+            else
+            {
+                drv_buzzerNumber(3);
                 break;
             }
         }

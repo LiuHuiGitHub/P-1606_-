@@ -150,7 +150,13 @@ void drv_ledDisplayChannel(UINT8 channel, UINT16 value)
 		return;
 	}
     place = channel*3;
-	if (value == DISPLAY_NONE)
+    if (value == DISPALY_CH_ERROR)						//±£ÏÕË¿¹ÄÕÆ
+    {
+		u8_ledDisBuff[place] = 11;
+		u8_ledDisBuff[place + 1] = 11;
+		u8_ledDisBuff[place + 2] = 11;
+    }
+	else if (value == DISPLAY_NONE)
 	{
 		u8_ledDisBuff[place] = 12;
 		u8_ledDisBuff[place + 1] = 12;

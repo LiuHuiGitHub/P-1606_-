@@ -3,6 +3,7 @@
 #include "drive_relay.h"
 #include "drive_led.h"
 #include "hwa_eeprom.h"
+#include "app_test.h"
 #include "string.h"
 
 data UINT16 u16_DisplayTime[AD_CHANNEL_NUM];//剩余时间，(显示时间的10倍)
@@ -64,7 +65,15 @@ void app_timeDisplay500ms(void)     //时间为0时闪烁显示通道号
 
 		for (channel = 0; channel < AD_CHANNEL_NUM; channel++)
 		{
-			if (u16_DisplayTime[channel] == 0)                       //时间为0闪烁显示通道号
+            if(b_fuseState[channel] == FALSE)                   //保险丝故障
+            {
+                drv_ledDisplayChannel(channel, DISPALY_CH_ERROR);
+                if(u16_DisplayTime[channel] != 0)               //如果时间不为0 清除时间
+                {
+                    app_timeClear(channel);
+                }
+            }
+            else if (u16_DisplayTime[channel] == 0)                       //时间为0闪烁显示通道号
 			{
 				if (b_lightFlashCount)
 				{
@@ -94,27 +103,7 @@ void app_timeAddTime(UINT8 channel, UINT16 money)
     }
     app_timeSaveTime();
 }
-
-
-//void app_timeAddMoney(UINT8 channel, UINT16 money)
-//{
-//	u16_DisplayTime[channel] += (UINT16)((UINT32)money*s_System.Time *10 / s_System.Money);    //TBD
-//    if(u16_DisplayTime[channel] > 9999)
-//    {
-//        u16_DisplayTime[channel] = 9999;
-//    }
-//    app_timeSaveTime();
-//}
-
-/* 返回返款金额
-*/
-UINT16 app_timeRefundMoney(UINT8 channel, UINT16 *money)
-{
-	UINT16 Money = (UINT16)((UINT32)u16_DisplayTime[channel] * s_System.Money /10 / s_System.Time);
-	*money += Money;
-    return Money;
-}
-				   
+		   
 void app_timePower1min(void)
 {
     UINT8 i;

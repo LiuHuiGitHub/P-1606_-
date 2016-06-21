@@ -10,6 +10,7 @@
 #include "app_config.h"
 #include "app_time.h"
 #include "stdio.h"
+#include "app_test.h"
 
 UINT8 taskCycleCnt10ms = 0;
 UINT8 taskCycleCnt500ms = 0;
@@ -44,6 +45,7 @@ void sys_tim0Isr(void) interrupt 1      //1ms cycle task
 {
     static UINT8 count = 0;
     drv_ledHandler1ms();
+    app_testHandler1ms();
     if(++count>=10)
     {
         drv_buzzerHandler10ms();
@@ -56,8 +58,11 @@ void main(void)
 {
     sys_taskInit();
     sys_timeInit();
+    app_testInit();
     app_Show();
 	drv_buzzerNumber(1);
+    app_testGetFuseState(0);
+    app_testGetFuseState(1);
     while(1)
     {
         WDT_CONTR |= 0x35;          //reset watch dog       max time 2.27s
